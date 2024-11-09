@@ -1,83 +1,119 @@
 #!/bin/bash
-# Ini adalah shebang yang menunjukkan script ini harus dijalankan menggunakan bash
 
+# Path ke log nginx
 logpath=/var/log/nginx/access.log
-# Mendefinisikan path ke file log nginx
 
+# Inisialisasi array
 ARRAY=()
 getip=()
 getfile=()
-# Menginisialisasi array kosong
 
 function getfiles {
-    # Fungsi untuk mendapatkan daftar file yang diakses
+    # Simpan state sebelumnya untuk deteksi konvergen
+    old_files=(${getfile[@]})
     
-    echo "getfiles param " ${getip[@]}
-    # Menampilkan parameter IP yang diterima
+    echo "==== getfiles() ===="
+    echo "Input IPs: " ${getip[@]}
     
+    # Buat pattern untuk grep dengan menggabungkan semua IP
     pat=$(echo ${getip[@]}|tr " " "|")
-    # Membuat pattern dengan menggabungkan semua IP menggunakan separator "|"
     
+    # Cari semua file yang diakses oleh IP-IP tersebut
     getfile+=($(grep -Ew $pat $logpath| cut -f 7 -d " " | sort | uniq))
-    # - Mencari baris log yang mengandung IP sesuai pattern
-    # - Mengambil field ke-7 (path file yang diakses)
-    # - Mengurutkan dan mengambil nilai unik
     
+    # Urutkan file berdasarkan frekuensi akses dan ambil yang unik
     uniqf=($(printf "%s\n" "${getfile[@]}" | sort | uniq -c | sort -rnk1 | awk '{ print $2 }'))
-    # Mengurutkan file berdasarkan frekuensi akses
     
+    # Reset dan update array getfile
     unset getfile
     getfile=("${uniqf[@]}")
-    # Memperbarui array getfile dengan hasil pengurutan
     
+    # Simpan ke file untuk referensi
     printf "%s\n" "${getfile[@]}" > files.txt
-    # Menyimpan daftar file ke files.txt
     
-    echo "getfiles result " ${getfile[@]}
-    # Menampilkan hasil
+    echo "Files found: " ${getfile[@]}
     
+    # Cek apakah sudah konvergen
+    if [[ "${old_files[*]}" == "${getfile[*]}" ]]; then
+        echo "========================================="
+        echo "Converged! No new files found."
+        echo "Final list of suspicious IPs:"
+        printf '%s\n' "${getip[@]}"
+        echo "Final list of accessed files:"
+        printf '%s\n' "${getfile[@]}"
+        echo "========================================="
+        exit 0
+    fi
+    
+    # Jika belum konvergen, lanjut ke fungsi getips
     getips
-    # Memanggil fungsi getips
 }
 
 function getips {
-    # Fungsi untuk mendapatkan daftar IP yang mengakses
+    # Simpan state sebelumnya untuk deteksi konvergen
+    old_ips=(${getip[@]})
     
-    echo "getips param " ${getfile[@]}
-    # Menampilkan parameter file yang diterima
+    echo "==== getips() ===="
+    echo "Input files: " ${getfile[@]}
     
+    # Buat pattern untuk grep dengan menggabungkan semua file
     pat=$(echo ${getfile[@]}|tr " " "|")
-    # Membuat pattern dengan menggabungkan semua file menggunakan separator "|"
     
+    # Cari semua IP yang mengakses file-file tersebut
     getip+=($(grep -Ew $pat $logpath| cut -f 1 -d " " | sort | uniq))
-    # - Mencari baris log yang mengandung path file sesuai pattern
-    # - Mengambil field ke-1 (alamat IP)
-    # - Mengurutkan dan mengambil nilai unik
     
+    # Urutkan IP berdasarkan frekuensi akses dan ambil yang unik
     uniqi=($(printf "%s\n" "${getip[@]}" | sort | uniq -c | sort -rnk1 | awk '{ print $2 }'))
-    # Mengurutkan IP berdasarkan frekuensi akses
     
+    # Reset dan update array getip
     unset getip
     getip=("${uniqi[@]}")
-    # Memperbarui array getip dengan hasil pengurutan
     
+    # Simpan ke file untuk referensi
     printf "%s\n" "${getip[@]}" > ips.txt
-    # Menyimpan daftar IP ke ips.txt
     
-    echo "getips result "${getip[@]}
-    # Menampilkan hasil
+    echo "IPs found: "${getip[@]}
     
+    # Cek apakah sudah konvergen
+    if [[ "${old_ips[*]}" == "${getip[*]}" ]]; then
+        echo "========================================="
+        echo "Converged! No new IPs found."
+        echo "Final list of suspicious IPs:"
+        printf '%s\n' "${getip[@]}"
+        echo "Final list of accessed files:"
+        printf '%s\n' "${getfile[@]}"
+        echo "========================================="
+        exit 0
+    fi
+    
+    # Jika belum konvergen, lanjut ke fungsi getfiles
     getfiles
-    # Memanggil fungsi getfiles
 }
 
-# Program utama
-getfile=( `cat "files.txt"` )
-getip=( `cat "ips.txt"` )
-# Membaca data awal dari files.txt dan ips.txt
+# Main program
+echo "Starting cross-correlation analysis..."
+echo "========================================="
 
-getfile+=($1)
-# Menambahkan parameter pertama ke array getfile
+# Baca data awal jika ada
+if [ -f "files.txt" ]; then
+    getfile=( `cat "files.txt"` )
+    echo "Loaded initial files: " ${getfile[@]}
+fi
 
+if [ -f "ips.txt" ]; then
+    getip=( `cat "ips.txt"` )
+    echo "Loaded initial IPs: " ${getip[@]}
+fi
+
+# Cek apakah ada parameter file yang diberikan
+if [ -n "$1" ]; then
+    echo "Starting analysis with file: $1"
+    getfile+=($1)
+else
+    echo "Usage: $0 <suspicious_file_path>"
+    echo "Example: $0 /wp-admin.php"
+    exit 1
+fi
+
+# Mulai analisis
 getips
-# Memulai proses dengan memanggil fungsi getips
